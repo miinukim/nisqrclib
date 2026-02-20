@@ -1,0 +1,27 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "nisqrclib"
+version = "0.1.1"
+description = "NISQRC-style quantum reservoir computing with Qiskit (streaming circuits, STM task, ESN baseline)"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [{name = "Minwoo Kim"}]
+dependencies = [
+  "numpy>=1.22",
+  "scipy>=1.9",
+  "qiskit>=1.0.0",
+  "qiskit-aer>=0.14.0",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0", "ruff>=0.4"]
+
+[project.scripts]
+nisqrc-stm-demo = "nisqrclib.cli:stm_demo"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/nisqrclib"]
