@@ -21,12 +21,3 @@ nisqrc-stm-demo
 # or:
 python examples/stm_demo.py
 ```
-
-## Notes on numerical stability
-
-The ESN baseline is stabilized by:
-- parameter validation (`leak_rate in [0,1]`)
-- spectral-radius scaling via **power iteration**
-- state clipping and finite-value checks
-
-If you still see non-finite states, reduce ESN `spectral_radius` and `input_scale`.
