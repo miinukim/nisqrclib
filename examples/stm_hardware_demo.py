@@ -16,8 +16,8 @@ def main() -> None:
         tau=1.0,
         input_scale=1.0,
         include_bias=True,
-        init_state="maximally_mixed",
-        shots=512,
+        init_state="zero",
+        shots=2048,
         seed=17462,
     )
     res = HardwareTrajectoryReservoir(qcfg)

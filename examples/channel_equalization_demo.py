@@ -15,13 +15,13 @@ np.seterr(all="raise")
 
 def main() -> None:
     qcfg = ChannelMapReservoirConfig(
-        n_system=4,
+        n_system=6,
         n_ancilla=2,
         tau=1.0,
         input_scale=1.0,
         include_bias=True,
         use_shot_noise=False,
-        init_state="maximally_mixed",
+        init_state="zero",
         seed=17462,
     )
     qres = ChannelMapReservoir(qcfg)
@@ -34,7 +34,7 @@ def main() -> None:
         delay=2,
         input_seed=2026,
         ridge_l2=1e-6,
-        metric="ber",
+        metric="mse",
     )
 
     qrunner = ChannelEqualizationTaskRunner(qres, ce_cfg)

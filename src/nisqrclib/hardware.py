@@ -30,7 +30,7 @@ class HardwareTrajectoryReservoirConfig:
     tau: float = 1.0
     input_scale: float = 1.0
     include_bias: bool = True
-    init_state: str = "maximally_mixed"  # "maximally_mixed" or "zero"
+    init_state: str = "zero"  # "maximally_mixed" or "zero"
     shots: int = 1024
     seed: int = 17462
     hx0_vec: Optional[np.ndarray] = None
