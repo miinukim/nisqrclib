@@ -15,13 +15,22 @@ dependencies = [
   "scipy>=1.9",
   "qiskit>=1.0.0",
   "qiskit-aer>=0.14.0",
+  "hydra-core>=1.3",
 ]
 
 [project.optional-dependencies]
 dev = ["pytest>=7.0", "ruff>=0.4"]
+experiment = [
+  "sacred>=0.8",
+  "mlflow>=2.0",
+  "dvc>=3.0",
+]
 
 [project.scripts]
 nisqrc-stm-demo = "nisqrclib.cli:stm_demo"
+nisqrc-run = "nisqrclib.cli:run_experiment"
+nisqrc-stm-hydra = "nisqrclib.cli:stm_hydra"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/nisqrclib"]
+include = ["src/nisqrclib/conf/**/*.yaml"]

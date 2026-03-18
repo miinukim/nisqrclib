@@ -1,0 +1,10 @@
+kind: channel_map
+n_system: 4
+n_ancilla: 2
+tau: 1.0
+input_scale: 1.0
+include_bias: true
+use_shot_noise: true
+shots: 1024
+init_state: maximally_mixed
+seed: ${experiment.seed}

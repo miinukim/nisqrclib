@@ -31,3 +31,10 @@ htmlcov/
 # Local temp files
 *.log
 *.tmp
+
+# Experiment tracking artifacts
+outputs/
+multirun/
+mlruns/
+runs/
+data/
