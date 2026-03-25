@@ -1,8 +1,18 @@
 from .config import NISQRCConfig, NoiseConfig
 from .reservoir import NISQReservoir
-from .channel_map import ChannelMapReservoir, ChannelMapReservoirConfig
-from .hardware import HardwareTrajectoryReservoir, HardwareTrajectoryReservoirConfig
-from .paper_params import PaperReservoirParams
+from .reservoir_params import ReservoirParams
+
+try:  # pragma: no cover
+    from .channel_map import ChannelMapReservoir, ChannelMapReservoirConfig
+except Exception:  # pragma: no cover
+    ChannelMapReservoir = None  # type: ignore
+    ChannelMapReservoirConfig = None  # type: ignore
+
+try:  # pragma: no cover
+    from .hardware import HardwareTrajectoryReservoir, HardwareTrajectoryReservoirConfig
+except Exception:  # pragma: no cover
+    HardwareTrajectoryReservoir = None  # type: ignore
+    HardwareTrajectoryReservoirConfig = None  # type: ignore
 
 __all__ = [
     "NISQRCConfig",
@@ -12,5 +22,5 @@ __all__ = [
     "ChannelMapReservoirConfig",
     "HardwareTrajectoryReservoir",
     "HardwareTrajectoryReservoirConfig",
-    "PaperReservoirParams",
+    "ReservoirParams",
 ]

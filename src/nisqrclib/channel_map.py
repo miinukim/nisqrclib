@@ -7,7 +7,7 @@ import numpy as np
 from scipy.linalg import expm
 from qiskit.quantum_info import DensityMatrix, Operator, SparsePauliOp, partial_trace
 
-from .paper_params import PaperReservoirParams
+from .reservoir_params import ReservoirParams
 
 def _single_pauli_label(n: int, q: int, p: str) -> str:
     chars = ["I"] * n
@@ -36,6 +36,7 @@ class ChannelMapReservoirConfig:
     hz1_vec: Optional[np.ndarray] = None
     J_mat: Optional[np.ndarray] = None
     seed: int = 17462
+    connectivity_kind: str = "full"
 
 
 class ChannelMapReservoir:
@@ -58,11 +59,12 @@ class ChannelMapReservoir:
         self.rng = np.random.default_rng(cfg.seed)
 
         if cfg.hx0_vec is None or cfg.hz1_vec is None or cfg.J_mat is None:
-            gen = PaperReservoirParams(
+            gen = ReservoirParams(
                 n_system=cfg.n_system,
                 n_ancilla=cfg.n_ancilla,
                 tau=cfg.tau,
                 seed=cfg.seed,
+                graph_kind=cfg.connectivity_kind,
             ).generate()
             self.hx0 = np.asarray(gen["hx0_vec"], dtype=float)
             self.hz1 = np.asarray(gen["hz1_vec"], dtype=float)
@@ -76,6 +78,7 @@ class ChannelMapReservoir:
 
         self.H0, self.H1 = self._build_H0_H1()
         self._unitary_cache: Dict[float, Operator] = {}
+        self._fixed_point_cache: np.ndarray | None = None
         self.rho_gA = DensityMatrix.from_label("0" * self.nA)
         self.reset()
 
@@ -119,6 +122,64 @@ class ChannelMapReservoir:
             raise FloatingPointError("Non-finite values in channel-map unitary.")
         self._unitary_cache[ueff] = U
         return U
+
+    def _memory_channel(self, u: float, op_memory: np.ndarray) -> np.ndarray:
+        op_memory = np.asarray(op_memory, dtype=complex)
+        if op_memory.shape != (2**self.nS, 2**self.nS):
+            raise ValueError("op_memory has incompatible shape.")
+        U = self._unitary_for_input(self.cfg.input_scale * float(u)).data
+        joint = np.kron(op_memory, self.rho_gA.data)
+        with np.errstate(divide="ignore", over="ignore", under="ignore", invalid="ignore"):
+            evolved = U @ joint @ U.conj().T
+        if not np.isfinite(evolved).all():
+            raise FloatingPointError("Non-finite values in channel-map operator evolution.")
+        dS = 2**self.nS
+        dA = 2**self.nA
+        reduced = np.trace(evolved.reshape(dS, dA, dS, dA), axis1=1, axis2=3)
+        if not np.isfinite(reduced).all():
+            raise FloatingPointError("Non-finite values in reduced system operator.")
+        return reduced
+
+    def fixed_point(self) -> np.ndarray:
+        if self._fixed_point_cache is not None:
+            return self._fixed_point_cache.copy()
+
+        I = np.array([[1, 0], [0, 1]], dtype=complex)
+        X = np.array([[0, 1], [1, 0]], dtype=complex)
+        Y = np.array([[0, -1j], [1j, 0]], dtype=complex)
+        Z = np.array([[1, 0], [0, -1]], dtype=complex)
+        one_qubit_basis = [I, X, Y, Z]
+
+        pauli_basis = []
+        for idx in range(4**self.nS):
+            word = np.base_repr(idx, base=4).zfill(self.nS)
+            op = np.array([[1]], dtype=complex)
+            for char in word:
+                op = np.kron(op, one_qubit_basis[int(char)])
+            pauli_basis.append(op)
+
+        dim = 2**self.nS
+        trans = np.zeros((len(pauli_basis), len(pauli_basis)), dtype=float)
+        for col, basis_op in enumerate(pauli_basis):
+            out = self._memory_channel(0.0, basis_op)
+            for row, measure_op in enumerate(pauli_basis):
+                trans[row, col] = float(np.real(np.trace(out @ measure_op)) / dim)
+
+        A = trans[1:, 1:]
+        b = trans[1:, 0]
+        x = np.linalg.solve(np.eye(A.shape[0]) - A, b)
+
+        rho_tomo = np.zeros((dim, dim), dtype=complex)
+        for idx, coeff in enumerate(x, start=1):
+            rho_tomo += coeff * pauli_basis[idx]
+        rho_fp = (rho_tomo + np.eye(dim, dtype=complex)) / dim
+        rho_fp = 0.5 * (rho_fp + rho_fp.conj().T)
+        rho_fp /= np.trace(rho_fp)
+        if not np.isfinite(rho_fp).all():
+            raise FloatingPointError("Non-finite values in channel-map fixed point.")
+
+        self._fixed_point_cache = rho_fp.copy()
+        return rho_fp
 
     def step(self, u: float) -> np.ndarray:
         ueff = self.cfg.input_scale * float(u)

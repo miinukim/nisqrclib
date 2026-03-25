@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import numpy as np
 
-from nisqrclib.baselines.esn import ESNConfig, run_channel_equalization_esn
+from nisqrclib.baselines import (
+    ESNConfig,
+    LogisticEqualizerConfig,
+    run_channel_equalization_esn,
+    run_channel_equalization_logistic,
+)
 from nisqrclib.channel_map import ChannelMapReservoir, ChannelMapReservoirConfig
 from nisqrclib.tasks.channel_equalization import (
     ChannelEqualizationConfig,
@@ -11,7 +16,7 @@ from nisqrclib.tasks.channel_equalization import (
 )
 
 
-def test_channel_equalization_quantum_and_esn_run() -> None:
+def test_channel_equalization_quantum_esn_and_logistic_run() -> None:
     cfg = ChannelEqualizationConfig(
         T_total=600,
         washout=50,
@@ -45,8 +50,17 @@ def test_channel_equalization_quantum_and_esn_run() -> None:
         ridge_l2=cfg.ridge_l2,
         metric=cfg.metric,
     )
+    lout = run_channel_equalization_logistic(
+        observed=observed,
+        target=target,
+        washout=max(cfg.washout, cfg.delay, len(cfg.taps) - 1),
+        train_len=cfg.train_len,
+        test_len=cfg.test_len,
+        logistic_cfg=LogisticEqualizerConfig(n_lags=8, l2=1e-4, max_iter=50),
+        metric=cfg.metric,
+    )
 
-    for out in (qout, eout):
+    for out in (qout, eout, lout):
         assert np.isfinite(out["test_ber"])
         assert np.isfinite(out["test_mse"])
         assert 0.0 <= out["test_ber"] <= 1.0

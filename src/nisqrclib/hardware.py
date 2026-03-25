@@ -7,7 +7,7 @@ import numpy as np
 from scipy.linalg import expm
 from qiskit.quantum_info import DensityMatrix, Operator, SparsePauliOp, partial_trace
 
-from .paper_params import PaperReservoirParams
+from .reservoir_params import ReservoirParams
 
 
 def _single_pauli_label(n: int, q: int, p: str) -> str:
@@ -58,7 +58,7 @@ class HardwareTrajectoryReservoir:
         self.rng = np.random.default_rng(cfg.seed)
 
         if cfg.hx0_vec is None or cfg.hz1_vec is None or cfg.J_mat is None:
-            gen = PaperReservoirParams(
+            gen = ReservoirParams(
                 n_system=cfg.n_system,
                 n_ancilla=cfg.n_ancilla,
                 tau=cfg.tau,

@@ -31,6 +31,50 @@ class ChannelEqualizationConfig:
     metric: Literal["ber", "mse"] = "ber"
 
 
+@dataclass
+class ChannelEqualizationDatasetConfig:
+    n_train: int = 100
+    n_test: int = 100
+    n_symb: int = 100
+    snr_db: float = 20.0
+    input_seed: int = 17462
+    symbols: Tuple[float, ...] = (-3.0, -1.0, 1.0, 3.0)
+    taps: Tuple[float, ...] = (1.0, 0.18, -0.10, 0.091, -0.05, 0.04, 0.03, 0.01)
+    nonlin2: float = 0.06
+    nonlin3: float = -0.01
+
+
+def _channel_response(message: np.ndarray, cfg: ChannelEqualizationDatasetConfig) -> tuple[np.ndarray, float]:
+    message = np.asarray(message, dtype=float).reshape(-1)
+    n_taps = len(cfg.taps)
+    padded = np.concatenate((message[-n_taps:], message))
+    linear = np.convolve(np.asarray(cfg.taps, dtype=float), padded, mode="full")[n_taps : -n_taps + 1]
+    noise_scale = float(np.sqrt(10.0 ** (-float(cfg.snr_db) / 10.0)))
+    return linear + cfg.nonlin2 * (linear**2) + cfg.nonlin3 * (linear**3), noise_scale
+
+
+def generate_channel_equalization_dataset(cfg: ChannelEqualizationDatasetConfig) -> Dict[str, np.ndarray]:
+    rng = np.random.default_rng(cfg.input_seed)
+
+    def sample_split(n_messages: int) -> tuple[np.ndarray, np.ndarray]:
+        messages = rng.choice(np.asarray(cfg.symbols, dtype=float), size=(n_messages, cfg.n_symb)).astype(float)
+        observed = np.zeros_like(messages)
+        for idx in range(n_messages):
+            noiseless, noise_scale = _channel_response(messages[idx], cfg)
+            observed[idx] = noiseless + noise_scale * rng.normal(size=cfg.n_symb)
+        return messages, observed
+
+    train_messages, train_observed = sample_split(cfg.n_train)
+    test_messages, test_observed = sample_split(cfg.n_test)
+    return {
+        "train_messages": train_messages,
+        "train_observed": train_observed,
+        "test_messages": test_messages,
+        "test_observed": test_observed,
+        "symbols": np.asarray(cfg.symbols, dtype=float),
+    }
+
+
 def generate_channel_equalization_data(cfg: ChannelEqualizationConfig) -> Tuple[np.ndarray, np.ndarray]:
     rng = np.random.default_rng(cfg.input_seed)
     s = rng.choice([-1.0, 1.0], size=cfg.T_total).astype(float)
@@ -94,3 +138,27 @@ class ChannelEqualizationTaskRunner:
             "train_score": -ber_tr if cfg.metric == "ber" else -mse_tr,
             "test_score": -ber_te if cfg.metric == "ber" else -mse_te,
         }
+
+
+class ChannelEqualizationReservoirProtocol(Protocol):
+    def run_stream(self, inputs: Sequence[float]) -> np.ndarray:
+        ...
+
+    def reset(self, rhoS0: np.ndarray | None = None) -> None:
+        ...
+
+
+def collect_channel_equalization_reservoir_features(
+    reservoir: ChannelEqualizationReservoirProtocol,
+    observed_messages: np.ndarray,
+    initial_state: np.ndarray | None = None,
+) -> np.ndarray:
+    observed_messages = np.asarray(observed_messages, dtype=float)
+    features = []
+    for message in observed_messages:
+        reservoir.reset(rhoS0=initial_state)
+        message_features = np.asarray(reservoir.run_stream(message.tolist()), dtype=float)
+        if message_features.shape[0] != message.shape[0]:
+            raise ValueError("Reservoir feature length must match message length.")
+        features.append(message_features)
+    return np.stack(features, axis=0)
