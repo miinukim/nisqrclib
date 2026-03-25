@@ -5,7 +5,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-from nisqrclib.baselines import SoftmaxReadoutConfig, fit_softmax_readout, predict_softmax_readout
+from nisqrclib.baselines import ESNConfig, EchoStateNetwork, SoftmaxReadoutConfig, fit_softmax_readout, predict_softmax_readout
 from nisqrclib.channel_map import ChannelMapReservoir, ChannelMapReservoirConfig
 from nisqrclib.reservoir_params import ReservoirParams
 from nisqrclib.tasks.channel_equalization import (
@@ -75,6 +75,39 @@ def _evaluate_raw_logistic(
     }
 
 
+def _collect_esn_features(esn_cfg: ESNConfig, observed_messages: np.ndarray) -> np.ndarray:
+    observed_messages = np.asarray(observed_messages, dtype=float)
+    features = []
+    for message in observed_messages:
+        esn = EchoStateNetwork(esn_cfg)
+        message_features = esn.collect_states(message.tolist())
+        features.append(np.asarray(message_features, dtype=float))
+    return np.stack(features, axis=0)
+
+
+def _evaluate_esn(
+    dataset: dict[str, np.ndarray],
+    esn_cfg: ESNConfig,
+    readout_cfg: SoftmaxReadoutConfig,
+) -> dict[str, np.ndarray | float]:
+    train_features = _collect_esn_features(esn_cfg, dataset["train_observed"])
+    test_features = _collect_esn_features(esn_cfg, dataset["test_observed"])
+    X_train = train_features.reshape(-1, train_features.shape[-1])
+    X_test = test_features.reshape(-1, test_features.shape[-1])
+    y_train = dataset["train_messages"].reshape(-1)
+    y_test = dataset["test_messages"].reshape(-1)
+
+    model = fit_softmax_readout(X_train, y_train, readout_cfg)
+    train_pred = predict_softmax_readout(X_train, model)
+    test_pred = predict_softmax_readout(X_test, model)
+    return {
+        "train_error_rate": float(np.mean(train_pred != y_train)),
+        "test_error_rate": float(np.mean(test_pred != y_test)),
+        "train_pred": train_pred.reshape(dataset["train_messages"].shape),
+        "test_pred": test_pred.reshape(dataset["test_messages"].shape),
+    }
+
+
 def _evaluate_naive_rounding(dataset: dict[str, np.ndarray]) -> dict[str, float]:
     symbols = dataset["symbols"]
     train_pred = _nearest_symbol(dataset["train_observed"], symbols)
@@ -89,6 +122,7 @@ def _plot_results(
     outdir: Path,
     snr_list: np.ndarray,
     qrc_errors: np.ndarray,
+    esn_errors: np.ndarray,
     logistic_errors: np.ndarray,
     naive_errors: np.ndarray,
 ) -> Path:
@@ -96,6 +130,7 @@ def _plot_results(
     fig, ax = plt.subplots(1, 1, figsize=(10, 6))
     ax.plot(snr_list, naive_errors, "k-.", linewidth=2.5, label="Naive rounding")
     ax.plot(snr_list, logistic_errors, color="#bcbd22", marker="+", markersize=14, linewidth=2.5, label="Logistic")
+    ax.plot(snr_list, esn_errors, color="#1f77b4", marker="s", markersize=8, linewidth=2.4, label="ESN")
     ax.plot(
         snr_list,
         qrc_errors,
@@ -149,6 +184,14 @@ def main() -> None:
     )
     reservoir = ChannelMapReservoir(qcfg)
     rho_fp = reservoir.fixed_point()
+    esn_cfg = ESNConfig(
+        n_res=200,
+        spectral_radius=0.8,
+        input_scale=0.1,
+        leak_rate=0.3,
+        ridge_l2=1e-4,
+        seed=2,
+    )
     readout_cfg = SoftmaxReadoutConfig(fit_intercept=True, l2=1e-6, max_iter=1000, tol=1e-9)
 
     base_cfg = ChannelEqualizationDatasetConfig(
@@ -160,12 +203,13 @@ def main() -> None:
     snr_list = np.linspace(0.0, 25.0, 6)
 
     qrc_errors = []
+    esn_errors = []
     logistic_errors = []
     naive_errors = []
 
     print("Channel equalization")
-    print("SNR(dB) | QRC test SER | Logistic test SER | Naive test SER")
-    print("-" * 60)
+    print("SNR(dB) | QRC test SER | ESN test SER | Logistic test SER | Naive test SER")
+    print("-" * 78)
     for snr_db in snr_list:
         cfg = ChannelEqualizationDatasetConfig(
             n_train=base_cfg.n_train,
@@ -181,27 +225,32 @@ def main() -> None:
         dataset = generate_channel_equalization_dataset(cfg)
 
         qout = _evaluate_qrc(reservoir, dataset, readout_cfg, initial_state=rho_fp)
+        eout = _evaluate_esn(dataset, esn_cfg, readout_cfg)
         lout = _evaluate_raw_logistic(dataset, readout_cfg)
         nout = _evaluate_naive_rounding(dataset)
 
         qrc_errors.append(qout["test_error_rate"])
+        esn_errors.append(eout["test_error_rate"])
         logistic_errors.append(lout["test_error_rate"])
         naive_errors.append(nout["test_error_rate"])
 
         print(
             f"{snr_db:6.1f} | "
             f"{qout['test_error_rate']:.6f} | "
+            f"{eout['test_error_rate']:.6f} | "
             f"{lout['test_error_rate']:.6f} | "
             f"{nout['test_error_rate']:.6f}"
         )
 
     qrc_errors_arr = np.asarray(qrc_errors, dtype=float)
+    esn_errors_arr = np.asarray(esn_errors, dtype=float)
     logistic_errors_arr = np.asarray(logistic_errors, dtype=float)
     naive_errors_arr = np.asarray(naive_errors, dtype=float)
     plot_path = _plot_results(
         outdir=Path("outputs") / "channel_equalization_demo",
         snr_list=snr_list,
         qrc_errors=qrc_errors_arr,
+        esn_errors=esn_errors_arr,
         logistic_errors=logistic_errors_arr,
         naive_errors=naive_errors_arr,
     )
